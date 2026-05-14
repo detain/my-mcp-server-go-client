@@ -1,0 +1,139 @@
+.TH "MCP-PROXY-CLIENT" "1" "2025" "InterServer Inc." "MCP Proxy Client Manual"
+.SH NAME
+mcp-proxy-client \- MCP (Model Context Protocol) proxy server
+.SH SYNOPSIS
+.B mcp-proxy-client
+[\fB\-config\fR \fIPATH\fR]
+[\fB\-version\fR]
+.SH DESCRIPTION
+.B mcp-proxy-client
+is a standalone MCP (Model Context Protocol) proxy server written in Go. It proxies requests to a MyAdmin API by fetching tool definitions from a remote OpenAPI specification and handling MCP protocol communication via Streamable HTTP transport.
+.PP
+The server automatically detects its transport mode based on execution context:
+.RS 2
+.TP 2
+*
+STDIO mode: When run without a TTY (e.g., from Claude Desktop or Cursor)
+.TP 2
+*
+HTTP mode: When run with a TTY connected (starts HTTP server on port 8080)
+.RE
+.SH OPTIONS
+.TP
+.BR \-config " \fIPATH\fR"
+Path to a .env configuration file. If not specified, the server looks for .env in the current directory.
+.TP
+.BR \-version
+Show version information and exit.
+.SH ENVIRONMENT
+The following environment variables control server behavior:
+.TP
+.B OPENAPI_SPEC_URL
+(Required) URL to fetch the OpenAPI specification from (JSON or YAML format).
+.TP
+.B API_BASE_URL
+(Required) Base URL of the API to proxy requests to.
+.TP
+.B API_KEY
+API key for authentication. Passed to backend via X-API-KEY header.
+.TP
+.B SESSION_ID
+Session ID for authentication. Passed to backend via sessionid header.
+.TP
+.B BEARER_TOKEN
+Bearer token for authentication. Passed to backend via Authorization header.
+.TP
+.B SESSION_DIR
+Directory for session storage. Default: /tmp/mcp_client_sessions
+.TP
+.B CACHE_DIR
+Directory for cached tool definitions. Default: /tmp/mcp_client_cache
+.TP
+.B SERVER_NAME
+Name advertised in MCP handshake. Default: myadmin-client-mcp
+.TP
+.B SERVER_VERSION
+Version advertised in MCP handshake. Default: 1.0.0
+.TP
+.B OAUTH_AUTHORIZATION_SERVER
+OAuth authorization server URL. If not set, derived from API_BASE_URL.
+.SH EXAMPLES
+.SS Basic STDIO Usage (Claude Desktop)
+.PP
+.nf
+#!/bin/bash
+export OPENAPI_SPEC_URL=https://my.interserver.net/spec/openapi.yaml
+export API_BASE_URL=https://my.interserver.net/apiv2
+export API_KEY=your_api_key
+/path/to/mcp-proxy-client
+.fi
+.SS HTTP Mode (Development)
+.PP
+.nf
+export OPENAPI_SPEC_URL=https://my.interserver.net/spec/openapi.yaml
+export API_BASE_URL=https://my.interserver.net/apiv2
+export API_KEY=your_api_key
+./mcp-proxy-client
+# Starts HTTP server on http://localhost:8080
+.fi
+.SS Using Configuration File
+.PP
+.nf
+# Create .env file with required variables
+cat > .env << 'EOF'
+OPENAPI_SPEC_URL=https://my.interserver.net/spec/openapi.yaml
+API_BASE_URL=https://my.interserver.net/apiv2
+API_KEY=your_api_key
+EOF
+
+# Run with config file
+./mcp-proxy-client -config .env
+.fi
+.SH API ENDPOINTS
+When running in HTTP mode, the server provides:
+.TP
+.B POST /mcp
+Send MCP JSON-RPC messages
+.TP
+.B GET /mcp
+OAuth protected resource metadata (via Accept header)
+.TP
+.B DELETE /mcp
+Close MCP session
+.TP
+.B OPTIONS /mcp
+CORS preflight
+.TP
+.B GET /.well-known/oauth-protected-resource
+RFC 9700 compliant OAuth 2.1 protected resource metadata
+.SH AUTHENTICATION
+The proxy forwards authentication credentials to the backend API:
+.RS 2
+.TP 2
+*
+Bearer Token: Authorization: Bearer <token>
+.TP 2
+*
+API Key: X-API-KEY: <key>
+.TP 2
+*
+Session ID: sessionid: <session_id>
+.RE
+.SH FILES
+.TP
+.I ~/.config/Claude/claude_desktop_config.json
+Claude Desktop configuration for STDIO mode integration.
+.TP
+.I /tmp/mcp_client_sessions/
+Default session storage directory.
+.TP
+.I /tmp/mcp_client_cache/
+Default tool definition cache directory.
+.SH SEE ALSO
+.BR claude (1),
+.BR cursor (1),
+RFC 9700 (OAuth 2.1 Protected Resource Metadata)
+.SH AUTHOR
+InterServer Inc.
+.SH REPORTING BUGS
+Report bugs to the project maintainers.
