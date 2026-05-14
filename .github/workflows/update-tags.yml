@@ -1,0 +1,51 @@
+name: Update Repository Metadata
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  update-metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update GitHub Repository Description and Tags
+        run: |
+          unset GITHUB_TOKEN
+          gh auth status || gh auth login
+
+          # Get current release tag
+          TAG=${GITHUB_REF#refs/tags/}
+
+          # Update repository description (max 350 chars)
+          gh repo edit --description "Go MCP Proxy Server for MyAdmin Client API - v$TAG"
+
+          # Add 19 relevant tags to repository
+          gh repo edit \
+            --add-topic mcp \
+            --add-topic model-context-protocol \
+            --add-topic go \
+            --add-topic golang \
+            --add-topic api-proxy \
+            --add-topic openapi \
+            --add-topic client-api \
+            --add-topic automation \
+            --add-topic cli \
+            --add-topic server \
+            --add-topic stdio \
+            --add-topic streamable-http \
+            --add-topic oauth2 \
+            --add-topic rest-api \
+            --add-topic Interserver \
+            --add-topic hosting \
+            --add-topic vps \
+            --add-topic webhosting \
+            --add-topic ssl \
+            --add-topic billing
+
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
