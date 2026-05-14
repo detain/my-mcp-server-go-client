@@ -10,25 +10,16 @@ import (
 	"os"
 
 	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
+	"github.com/myadmin/go-mcp-proxy-client/internal/config"
 	"github.com/myadmin/go-mcp-proxy-client/internal/oauth"
 	"github.com/myadmin/go-mcp-proxy-client/internal/server"
 )
 
-const (
-	version           = "1.0.0"
-	defaultName       = "myadmin-client-mcp"
-	defaultAuthServer = "https://auth.example.com"
-	defaultServerURL  = "http://localhost:8080"
-)
-
 func main() {
 	// Command line flags
+	configPath := flag.String("config", "", "Path to .env configuration file")
 	showVersion := flag.Bool("version", false, "Show version and exit")
 	flag.Parse()
-
-	// Load .env file if present
-	_ = godotenv.Load()
 
 	// Initialize structured logger
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -38,28 +29,36 @@ func main() {
 
 	// Handle version flag
 	if *showVersion {
-		fmt.Printf("MCP Proxy Client %s\n", version)
+		cfg, err := config.Load(*configPath)
+		if err != nil {
+			fmt.Printf("MCP Proxy Client %s\n", config.DefaultServerVersion)
+		} else {
+			fmt.Printf("MCP Proxy Client %s\n", cfg.ServerVersion)
+		}
 		os.Exit(0)
 	}
 
-	// Get configuration from environment
-	serverName := getEnv("SERVER_NAME", defaultName)
-	serverVersion := getEnv("SERVER_VERSION", version)
-	authServerURL := getEnv("AUTH_SERVER_URL", defaultAuthServer)
-	serverURL := getEnv("SERVER_URL", defaultServerURL)
-
-	logger.Info("MCP Proxy Client starting...",
-		slog.String("name", serverName),
-		slog.String("version", serverVersion),
-	)
-
-	// Initialize server components
-	cfg := server.Config{
-		Name:    serverName,
-		Version: serverVersion,
+	// Load configuration from .env file and environment variables
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		logger.Error("Failed to load configuration", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
 
-	mcpServer, err := server.NewServer(cfg, logger)
+	logger.Info("MCP Proxy Client starting...",
+		slog.String("name", cfg.ServerName),
+		slog.String("version", cfg.ServerVersion),
+		slog.String("openapiSpecURL", maskURL(cfg.OpenAPISpecURL)),
+		slog.String("apiBaseURL", maskURL(cfg.APIBaseURL)),
+	)
+
+	// Create server config from application config
+	serverConfig := server.Config{
+		Name:    cfg.ServerName,
+		Version: cfg.ServerVersion,
+	}
+
+	mcpServer, err := server.NewServer(serverConfig, logger)
 	if err != nil {
 		logger.Error("Failed to create MCP server", slog.String("error", err.Error()))
 		os.Exit(1)
@@ -71,13 +70,18 @@ func main() {
 
 	// Configure OAuth protected resource metadata
 	protectedResource := oauth.NewProtectedResource(logger)
-	protectedResource.Configure(serverURL, authServerURL)
+	protectedResource.Configure(cfg.NormalizeAPIBaseURL(), cfg.GetOAuthAuthorizationServer())
 
 	// Start server based on transport mode
 	ctx := context.Background()
 
 	if transport == "stdio" {
 		// STDIO mode - serve MCP over stdin/stdout
+		logger.Info("Starting in STDIO mode",
+			slog.Bool("hasBearerToken", cfg.BearerToken != ""),
+			slog.Bool("hasAPIKey", cfg.APIKey != ""),
+			slog.Bool("hasSessionID", cfg.SessionID != ""),
+		)
 		if err := server.ServeStdio(mcpServer.Server(), logger); err != nil {
 			logger.Error("STDIO server failed", slog.String("error", err.Error()))
 			os.Exit(1)
@@ -95,7 +99,9 @@ func main() {
 		mcpHandler := server.CreateStreamableHTTPHandler(mcpServer.Server(), logger)
 		router.Any("/mcp", gin.WrapH(mcpHandler))
 
-		logger.Info("Starting HTTP server on :8080")
+		logger.Info("Starting HTTP server on :8080",
+			slog.String("apiBaseURL", cfg.APIBaseURL),
+		)
 
 		if err := router.Run(":8080"); err != nil {
 			logger.Error("HTTP server failed", slog.String("error", err.Error()))
@@ -107,9 +113,14 @@ func main() {
 	logger.Info("MCP Proxy Client shutting down")
 }
 
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+// maskURL returns a masked URL for logging (shows scheme and host only).
+func maskURL(rawURL string) string {
+	if rawURL == "" {
+		return "(not set)"
 	}
-	return defaultValue
+	// Simple masking: just show the scheme and host
+	if len(rawURL) > 50 {
+		return rawURL[:50] + "..."
+	}
+	return rawURL
 }
