@@ -167,11 +167,17 @@ func (h *Handler) ToolHandler(tool openapi.Tool) mcp.ToolHandler {
 			}, nil
 		}
 
+		// Wrap top-level array responses for MCP compliance.
+		// MCP requires structuredContent to be a JSON object, not a list.
+		// ~89 OpenAPI list endpoints return top-level arrays; wrap them
+		// so the SDK emits a valid object.
+		responseBody := wrapArrayResponse(body)
+
 		// Return successful response
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{
-					Text: string(body),
+					Text: responseBody,
 				},
 			},
 		}, nil
@@ -258,4 +264,33 @@ func (h *Handler) RegisterTools(server *mcp.Server, tools []openapi.Tool) int {
 
 	h.logger.Info("Registered tools", slog.Int("count", count))
 	return count
+}
+
+// wrapArrayResponse checks if the body is a JSON array and wraps it as {"items": ...}.
+// MCP requires structuredContent to be a JSON object, not a list.
+// This ensures list responses from OpenAPI endpoints are properly wrapped.
+func wrapArrayResponse(body []byte) string {
+	// Try to parse the body as JSON
+	var decoded interface{}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		// Not valid JSON, return as-is
+		return string(body)
+	}
+
+	// Check if it's an array (slice in Go)
+	if arr, ok := decoded.([]interface{}); ok {
+		// Wrap the array as {"items": [...]}
+		wrapped := map[string]interface{}{
+			"items": arr,
+		}
+		wrappedJSON, err := json.Marshal(wrapped)
+		if err != nil {
+			// If marshaling fails, return original
+			return string(body)
+		}
+		return string(wrappedJSON)
+	}
+
+	// It's already an object or other type, return as-is
+	return string(body)
 }
